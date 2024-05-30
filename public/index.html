@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JOBx Interview</title>
+  <style>
+    #videoContainer {
+      display: flex;
+    }
+    #userVideo {
+      width: 50%;
+    }
+    #deepgramAudio {
+      width: 50%;
+    }
+  </style>
+</head>
+<body>
+  <h1>JOBx AI Interviewer</h1>
+  <button id="startInterview">Start Interview</button>
+  <div id="videoContainer">
+    <video id="userVideo" autoplay muted></video>
+    <audio id="deepgramAudio" autoplay></audio>
+  </div>
+  <div id="transcript"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let mediaRecorder;
+    let isDeepgramConnectionOpen = false;
+
+    document.getElementById('startInterview').addEventListener('click', () => {
+      socket.emit('startInterview');
+
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
+        // Display user's video
+        const userVideo = document.getElementById('userVideo');
+        userVideo.srcObject = stream;
+
+        // Initialize MediaRecorder for audio stream
+        if (mediaRecorder) {
+          mediaRecorder.stop();
+        }
+
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0 && isDeepgramConnectionOpen) {
+            socket.emit('audio', event.data);
+          } else {
+            console.error("Deepgram connection not open. Cannot send audio data.");
+          }
+        };
+        mediaRecorder.start(1000); // Collect 1 second chunks of audio
+      }).catch((err) => {
+        console.error("Error accessing media devices:", err);
+      });
+    });
+
+    socket.on('deepgramConnectionStatus', (status) => {
+      if (status === "open") {
+        isDeepgramConnectionOpen = true;
+      } else {
+        isDeepgramConnectionOpen = false;
+      }
+    });
+
+    socket.on('transcript', (data) => {
+      const transcriptDiv = document.getElementById('transcript');
+      const transcript = data.channel.alternatives[0].transcript;
+      if (transcript) {
+        transcriptDiv.innerHTML += `<p>${transcript}</p>`;
+      }
+    });
+
+    socket.on('deepgramAudio', (audioData) => {
+      const deepgramAudio = document.getElementById('deepgramAudio');
+      const audioBlob = new Blob([audioData], { type: 'audio/wav' });
+      deepgramAudio.src = URL.createObjectURL(audioBlob);
+      deepgramAudio.play();
+    });
+
+    socket.on('disconnect', () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+    });
+  </script>
+</body>
+</html>
